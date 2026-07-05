@@ -11,10 +11,10 @@ import (
 const historySize = 500
 
 var (
-	mu       sync.RWMutex
-	history  []string
-	subs     = make(map[chan string]struct{})
-	std      = log.New(os.Stdout, "", 0)
+	mu      sync.RWMutex
+	history []string
+	subs    = make(map[chan string]struct{})
+	std     = log.New(os.Stdout, "", 0)
 )
 
 func Info(category, format string, args ...any) {
