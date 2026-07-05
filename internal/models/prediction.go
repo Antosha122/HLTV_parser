@@ -1,19 +1,19 @@
 package models
 
 type Prediction struct {
-	Team1        Team                `json:"team1"`
-	Team2        Team                `json:"team2"`
-	Format       MatchFormat         `json:"format"`
-	WinProb      WinProbability      `json:"win_prob"`
-	SeriesScores map[string]float64  `json:"series_scores"`
-	Veto         VetoPrediction      `json:"veto"`
-	Maps         []MapPrediction     `json:"maps"`
-	Breakdown    ModelBreakdown      `json:"breakdown"`
-	H2H          H2HSummary          `json:"h2h"`
-	Form          FormSummary      `json:"form"`
-	Confidence    string           `json:"confidence"`
-	Team1MapStats []MapStatSummary `json:"team1_map_stats,omitempty"`
-	Team2MapStats []MapStatSummary `json:"team2_map_stats,omitempty"`
+	Team1         Team               `json:"team1"`
+	Team2         Team               `json:"team2"`
+	Format        MatchFormat        `json:"format"`
+	WinProb       WinProbability     `json:"win_prob"`
+	SeriesScores  map[string]float64 `json:"series_scores"`
+	Veto          VetoPrediction     `json:"veto"`
+	Maps          []MapPrediction    `json:"maps"`
+	Breakdown     ModelBreakdown     `json:"breakdown"`
+	H2H           H2HSummary         `json:"h2h"`
+	Form          FormSummary        `json:"form"`
+	Confidence    string             `json:"confidence"`
+	Team1MapStats []MapStatSummary   `json:"team1_map_stats,omitempty"`
+	Team2MapStats []MapStatSummary   `json:"team2_map_stats,omitempty"`
 }
 
 type MapStatSummary struct {
@@ -59,11 +59,11 @@ type ModelBreakdown struct {
 }
 
 type H2HSummary struct {
-	Total       int          `json:"total"`
-	Team1Wins   int          `json:"team1_wins"`
-	Team2Wins   int          `json:"team2_wins"`
-	Team1WinPct float64      `json:"team1_win_pct"`
-	Matches     []H2HMatch   `json:"matches,omitempty"`
+	Total       int        `json:"total"`
+	Team1Wins   int        `json:"team1_wins"`
+	Team2Wins   int        `json:"team2_wins"`
+	Team1WinPct float64    `json:"team1_win_pct"`
+	Matches     []H2HMatch `json:"matches,omitempty"`
 }
 
 type H2HMatch struct {

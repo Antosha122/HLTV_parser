@@ -11,12 +11,12 @@ const (
 )
 
 type Match struct {
-	ID        int
-	EventID   int
-	Team1     Team
-	Team2     Team
-	Format    MatchFormat
-	Date      time.Time
-	WinnerID  int
-	Stars     int
+	ID       int
+	EventID  int
+	Team1    Team
+	Team2    Team
+	Format   MatchFormat
+	Date     time.Time
+	WinnerID int
+	Stars    int
 }
