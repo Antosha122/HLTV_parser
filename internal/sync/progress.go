@@ -9,138 +9,180 @@ import (
 
 // Status is the live sync/predict progress exposed to the UI.
 type Status struct {
-	Running          bool           `json:"running"`
-	Phase            string         `json:"phase"`
-	Detail           string         `json:"detail"`
-	StartedAt        string         `json:"started_at,omitempty"`
-	LastFinishedAt   string         `json:"last_finished_at,omitempty"`
-	LastResult       *RefreshResult `json:"last_result,omitempty"`
+	Running        bool           `json:"running"`
+	Phase          string         `json:"phase"`
+	Detail         string         `json:"detail"`
+	StartedAt      string         `json:"started_at,omitempty"`
+	LastFinishedAt string         `json:"last_finished_at,omitempty"`
+	LastResult     *RefreshResult `json:"last_result,omitempty"`
 }
 
-var (
-	statusMu sync.RWMutex
-	status   Status
-)
+// refreshPhases lists phases that represent an active (cancellable) refresh.
+var refreshPhases = map[string]bool{
+	"start": true, "events": true, "event": true,
+	"history": true, "teams": true, "maps": true, "ranking": true,
+}
 
-func BeginRefresh() {
-	statusMu.Lock()
-	status = Status{
+// StatusTracker holds the live progress of sync/predict operations.
+// It replaces the old package-level global state, making it possible to
+// run/test multiple Service instances in isolation.
+type StatusTracker struct {
+	mu     sync.RWMutex
+	status Status
+}
+
+// NewStatusTracker creates a ready-to-use StatusTracker.
+func NewStatusTracker() *StatusTracker {
+	return &StatusTracker{}
+}
+
+func (t *StatusTracker) BeginRefresh() {
+	t.mu.Lock()
+	t.status = Status{
 		Running:   true,
 		Phase:     "start",
-		Detail:    "Старт обновления...",
+		Detail:    "Starting refresh...",
 		StartedAt: time.Now().UTC().Format(time.RFC3339),
 	}
-	statusMu.Unlock()
+	t.mu.Unlock()
 }
 
-func EndRefresh(res RefreshResult) {
+func (t *StatusTracker) EndRefresh(res RefreshResult) {
 	clearRefreshCancel()
 	res.FinishedAt = time.Now().UTC().Format(time.RFC3339)
-	statusMu.Lock()
-	status.Running = false
-	status.Phase = "done"
-	status.Detail = "Обновление завершено"
-	status.LastFinishedAt = res.FinishedAt
+	t.mu.Lock()
+	t.status.Running = false
+	t.status.Phase = "done"
+	t.status.Detail = "Refresh complete"
+	t.status.LastFinishedAt = res.FinishedAt
 	copy := res
-	status.LastResult = &copy
-	statusMu.Unlock()
-	logx.Info("sync", "✓ завершено: турниров=%d команд=%d матчей=%d история=%d",
+	t.status.LastResult = &copy
+	t.mu.Unlock()
+	logx.Info("sync", "done: events=%d teams=%d matches=%d history=%d",
 		res.EventsSynced, res.TeamsSaved, res.MatchesSynced, res.HistoryMatches)
 }
 
-func FailRefresh(err error) {
+func (t *StatusTracker) EndRefreshCancelled() {
 	clearRefreshCancel()
-	statusMu.Lock()
-	status.Running = false
-	status.Phase = "error"
-	status.Detail = err.Error()
-	statusMu.Unlock()
-	logx.Error("sync", "обновление не удалось: %v", err)
+	t.mu.Lock()
+	t.status.Running = false
+	t.status.Phase = "cancelled"
+	t.status.Detail = "Refresh cancelled"
+	t.status.LastFinishedAt = time.Now().UTC().Format(time.RFC3339)
+	t.mu.Unlock()
 }
 
-func SetProgress(phase, detail string) {
-	statusMu.Lock()
-	status.Phase = phase
-	status.Detail = detail
-	statusMu.Unlock()
-	logx.Info("sync", "→ [%s] %s", phase, detail)
+func (t *StatusTracker) FailRefresh(err error) {
+	clearRefreshCancel()
+	t.mu.Lock()
+	t.status.Running = false
+	t.status.Phase = "error"
+	t.status.Detail = err.Error()
+	t.mu.Unlock()
+	logx.Error("sync", "refresh failed: %v", err)
 }
 
-func BeginOperation(phase, detail string) {
-	statusMu.Lock()
-	status = Status{
+func (t *StatusTracker) SetProgress(phase, detail string) {
+	t.mu.Lock()
+	t.status.Phase = phase
+	t.status.Detail = detail
+	t.mu.Unlock()
+	logx.Info("sync", "[%s] %s", phase, detail)
+}
+
+func (t *StatusTracker) BeginOperation(phase, detail string) {
+	t.mu.Lock()
+	t.status = Status{
 		Running:   true,
 		Phase:     phase,
 		Detail:    detail,
 		StartedAt: time.Now().UTC().Format(time.RFC3339),
 	}
-	statusMu.Unlock()
-	logx.Info("sync", "▶ [%s] %s", phase, detail)
+	t.mu.Unlock()
+	logx.Info("sync", "[%s] %s", phase, detail)
 }
 
-func EndOperation(detail string) {
-	statusMu.Lock()
-	status.Running = false
-	status.Phase = "done"
+func (t *StatusTracker) EndOperation(detail string) {
+	t.mu.Lock()
+	t.status.Running = false
+	t.status.Phase = "done"
 	if detail != "" {
-		status.Detail = detail
+		t.status.Detail = detail
 	}
-	status.LastFinishedAt = time.Now().UTC().Format(time.RFC3339)
-	statusMu.Unlock()
+	t.status.LastFinishedAt = time.Now().UTC().Format(time.RFC3339)
+	t.mu.Unlock()
 }
 
-func SetPredictProgress(detail string) {
-	SetProgress("predict", detail)
+func (t *StatusTracker) SetPredictProgress(detail string) {
+	t.SetProgress("predict", detail)
 }
 
-func ClearPredictProgress() {}
-
-func SetTeamProgress(detail string) {
-	SetProgress("team", detail)
+func (t *StatusTracker) SetTeamProgress(detail string) {
+	t.SetProgress("team", detail)
 }
 
-func ClearTeamProgress() {}
-
-// IsBusy is true while any long-running operation is active (refresh, predict prep, team sync).
-func IsBusy() bool {
-	return CurrentStatus().Running
+// IsBusy is true while any long-running operation is active.
+func (t *StatusTracker) IsBusy() bool {
+	return t.CurrentStatus().Running
 }
 
 // ClearStaleRunning resets a stuck Running flag left by older builds or interrupted ops.
-func ClearStaleRunning() {
-	statusMu.Lock()
-	defer statusMu.Unlock()
-	if !status.Running {
+func (t *StatusTracker) ClearStaleRunning() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if !t.status.Running {
 		return
 	}
-	switch status.Phase {
-	case "start", "events", "event", "history", "teams", "maps":
+	if refreshPhases[t.status.Phase] {
 		return
 	}
-	status.Running = false
-	status.Phase = ""
-	status.Detail = ""
+	t.status.Running = false
+	t.status.Phase = ""
+	t.status.Detail = ""
 }
 
-func IsRefreshRunning() bool {
-	st := CurrentStatus()
+func (t *StatusTracker) IsRefreshRunning() bool {
+	st := t.CurrentStatus()
 	if !st.Running {
 		return false
 	}
-	switch st.Phase {
-	case "start", "events", "event", "history", "teams", "maps":
-		return true
-	default:
-		return false
-	}
+	return refreshPhases[st.Phase]
 }
 
-func IsCancellableRefresh() bool {
-	return IsRefreshRunning()
+func (t *StatusTracker) IsCancellableRefresh() bool {
+	return t.IsRefreshRunning()
 }
 
-func CurrentStatus() Status {
-	statusMu.RLock()
-	defer statusMu.RUnlock()
-	return status
+func (t *StatusTracker) CurrentStatus() Status {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.status
 }
+
+// ---- Backward-compatible package-level wrappers ----
+// These delegate to a default tracker so existing callers (api package,
+// cmd/psr) continue to work. New code should prefer the instance-based
+// StatusTracker owned by Service.
+
+var defaultTracker = NewStatusTracker()
+
+func BeginRefresh()                       { defaultTracker.BeginRefresh() }
+func EndRefresh(res RefreshResult)        { defaultTracker.EndRefresh(res) }
+func EndRefreshCancelled()                { defaultTracker.EndRefreshCancelled() }
+func FailRefresh(err error)               { defaultTracker.FailRefresh(err) }
+func SetProgress(phase, detail string)    { defaultTracker.SetProgress(phase, detail) }
+func BeginOperation(phase, detail string) { defaultTracker.BeginOperation(phase, detail) }
+func EndOperation(detail string)          { defaultTracker.EndOperation(detail) }
+func SetPredictProgress(detail string)    { defaultTracker.SetPredictProgress(detail) }
+func ClearPredictProgress()               {}
+func SetTeamProgress(detail string)       { defaultTracker.SetTeamProgress(detail) }
+func ClearTeamProgress()                  {}
+func IsBusy() bool                        { return defaultTracker.IsBusy() }
+func ClearStaleRunning()                  { defaultTracker.ClearStaleRunning() }
+func IsRefreshRunning() bool              { return defaultTracker.IsRefreshRunning() }
+func IsCancellableRefresh() bool          { return defaultTracker.IsCancellableRefresh() }
+func CurrentStatus() Status               { return defaultTracker.CurrentStatus() }
+
+// DefaultTracker returns the package-level default tracker, used by the API
+// layer for status endpoints. In the future each Service can own its own.
+func DefaultTracker() *StatusTracker { return defaultTracker }
