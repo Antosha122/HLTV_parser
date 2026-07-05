@@ -3,7 +3,6 @@ package sync
 import (
 	"context"
 	"sync"
-	"time"
 
 	"psr/internal/logx"
 )
@@ -34,6 +33,7 @@ func CancelRefresh() bool {
 		return false
 	}
 	cancel()
+	logx.Info("sync", "refresh cancellation requested")
 	return true
 }
 
@@ -41,16 +41,4 @@ func clearRefreshCancel() {
 	refreshCancelMu.Lock()
 	refreshCancel = nil
 	refreshCancelMu.Unlock()
-}
-
-// EndRefreshCancelled marks refresh as stopped by the user.
-func EndRefreshCancelled() {
-	clearRefreshCancel()
-	statusMu.Lock()
-	status.Running = false
-	status.Phase = "done"
-	status.Detail = "Обновление остановлено"
-	status.LastFinishedAt = time.Now().UTC().Format(time.RFC3339)
-	statusMu.Unlock()
-	logx.Info("sync", "обновление остановлено")
 }
