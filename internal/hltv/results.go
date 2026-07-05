@@ -83,7 +83,6 @@ func minDateFromQuery(q url.Values) time.Time {
 	return t.UTC()
 }
 
-
 func mergeMatchSummaries(batches ...[]models.MatchSummary) []models.MatchSummary {
 	seen := make(map[int]struct{})
 	var out []models.MatchSummary

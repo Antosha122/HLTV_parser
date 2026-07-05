@@ -9,7 +9,6 @@ import (
 	"psr/internal/logx"
 )
 
-
 func HumanPause(ctx context.Context, cfg config.Config, action string) {
 	min := cfg.HumanDelayMin
 	max := cfg.HumanDelayMax

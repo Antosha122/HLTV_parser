@@ -18,16 +18,16 @@ import (
 
 // Session reuses one Chrome instance — cf_clearance only works inside real Chrome.
 type Session struct {
-	cfg          config.Config
-	mu           sync.Mutex
-	browser      *rod.Browser
-	attached     bool // connected to user's Chrome — do not Close() on cleanup
-	http         *ChromeHTTPFetcher
-	cookie       string
-	ready        bool
-	lastReq         time.Time
-	lastVerified    time.Time
-	rateLimitUntil  time.Time
+	cfg            config.Config
+	mu             sync.Mutex
+	browser        *rod.Browser
+	attached       bool // connected to user's Chrome — do not Close() on cleanup
+	http           *ChromeHTTPFetcher
+	cookie         string
+	ready          bool
+	lastReq        time.Time
+	lastVerified   time.Time
+	rateLimitUntil time.Time
 }
 
 func NewSession(cfg config.Config) *Session {

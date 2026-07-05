@@ -13,9 +13,9 @@ import (
 )
 
 type BrowserFetcher struct {
-	cfg    config.Config
+	cfg     config.Config
 	browser *rod.Browser
-	mu     sync.Mutex
+	mu      sync.Mutex
 }
 
 func NewBrowserFetcher(cfg config.Config) (*BrowserFetcher, error) {
