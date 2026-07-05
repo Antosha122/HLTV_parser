@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PSR — CS2 Predictor</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>PSR</h1>
+    <p>Прогноз матчей CS2 — данные с HLTV</p>
+  </header>
+
+  <nav class="tabs">
+    <button type="button" class="tab active" data-tab="data">Данные</button>
+    <button type="button" class="tab" data-tab="predict">Прогноз</button>
+    <button type="button" class="tab" data-tab="team">Команда</button>
+  </nav>
+
+  <div id="syncProgress" class="sync-progress global-sync hidden">
+    <div class="sync-phase" id="syncPhase">—</div>
+    <div class="sync-detail" id="syncDetail">—</div>
+    <div class="sync-meta muted" id="syncMeta"></div>
+  </div>
+
+  <main>
+    <section class="panel tab-panel active" id="tab-data">
+      <h2>Данные HLTV</h2>
+      <p class="hint">Используйте <strong>только Chrome, который открывает программа</strong> (профиль PSR). Данные загружаются по <strong>cookie</strong>.</p>
+
+      <ol class="steps">
+        <li><strong>Открыть HLTV</strong> — Chrome PSR</li>
+        <li>Пройдите капчу, откройте <strong>Турниры</strong></li>
+        <li>F12 → <strong>Приложение</strong> → Cookies → <code>https://www.hltv.org</code></li>
+        <li>Скопируйте <code>cf_clearance</code> и <code>__cf_bm</code> → <strong>Сохранить</strong></li>
+        <li><strong>Подключиться</strong> → <strong>Обновить турниры и команды</strong></li>
+      </ol>
+
+      <div class="btn-row">
+        <button id="openHltvBtn" type="button">1. Открыть HLTV</button>
+        <button id="connectBtn" type="button" class="primary">2. Подключиться</button>
+      </div>
+      <p id="cookieStatus" class="status muted"></p>
+
+      <details class="help-box">
+        <summary>Как скопировать Cookie</summary>
+        <p class="help-title">Способ А — из «Приложение»</p>
+        <ol class="steps">
+          <li>F12 → Cookies → <code>https://www.hltv.org</code></li>
+          <li>Скопируйте значения <code>cf_clearance</code> и <code>__cf_bm</code></li>
+        </ol>
+        <p class="help-warn"><code>__cf_bm</code> нужен только с <code>www.hltv.org</code>, не с cdn/рекламы.</p>
+      </details>
+
+      <label for="cfClearanceInput">cf_clearance</label>
+      <input type="text" id="cfClearanceInput" autocomplete="off" spellcheck="false" placeholder="значение без префикса">
+
+      <label for="cfBmInput">__cf_bm</label>
+      <input type="text" id="cfBmInput" autocomplete="off" spellcheck="false" placeholder="значение без префикса">
+
+      <label for="cookiePasteInput">Или вставить всё сразу</label>
+      <textarea id="cookiePasteInput" rows="2" placeholder="cf_clearance=...; __cf_bm=..."></textarea>
+
+      <button id="saveCookieBtn" type="button" class="primary btn-block">Сохранить cookie</button>
+
+      <div class="btn-row">
+        <button id="refreshBtn" class="primary">3. Обновить турниры и команды</button>
+        <button id="refreshEventsBtn" type="button">Только турниры</button>
+        <button id="stopRefreshBtn" type="button" class="danger hidden">Остановить</button>
+        <button id="clearDbBtn" type="button" class="danger">Очистить БД</button>
+      </div>
+
+      <p id="refreshStatus" class="status"></p>
+      <p id="dbStats" class="status muted"></p>
+
+      <h3>Лог программы</h3>
+      <pre id="logPanel" class="log-panel"></pre>
+    </section>
+
+    <section class="panel tab-panel" id="tab-predict">
+      <h2>Прогноз матча</h2>
+
+      <label for="eventSearch">Поиск турнира</label>
+      <input type="search" id="eventSearch" placeholder="например: IEM Cologne" autocomplete="off">
+
+      <label for="eventSelect">Турнир (необязательно)</label>
+      <select id="eventSelect"><option value="">— все команды из БД —</option></select>
+
+      <label for="teamSearch">Поиск команды (в рамках турнира)</label>
+      <input type="search" id="teamSearch" placeholder="например: Spirit" autocomplete="off" disabled>
+
+      <label for="team1Select">Команда 1</label>
+      <select id="team1Select"><option value="">— загрузка —</option></select>
+
+      <label for="team2Select">Команда 2</label>
+      <select id="team2Select"><option value="">— загрузка —</option></select>
+
+      <label for="formatSelect">Формат</label>
+      <select id="formatSelect">
+        <option value="bo1">Bo1</option>
+        <option value="bo3" selected>Bo3</option>
+        <option value="bo5">Bo5</option>
+      </select>
+
+      <button id="predictBtn" type="button" class="primary">Прогноз</button>
+      <p id="status" class="status"></p>
+
+      <div id="results" class="hidden">
+        <h3 id="matchTitle"></h3>
+        <p id="confidence" class="muted"></p>
+        <div class="prob-bars">
+          <div><span id="team1Label"></span> <span id="team1Pct"></span><div class="bar"><div id="team1Bar" class="fill"></div></div></div>
+          <div><span id="team2Label"></span> <span id="team2Pct"></span><div class="bar"><div id="team2Bar" class="fill team2"></div></div></div>
+        </div>
+        <h4>Личные встречи (из БД)</h4>
+        <p id="h2hSummary" class="muted"></p>
+        <div id="h2hMatches" class="match-list"></div>
+        <h4>Разбор модели</h4>
+        <ul id="breakdown"></ul>
+        <h4>Статистика карт команд (из БД)</h4>
+        <div class="maps-compare">
+          <div>
+            <strong id="team1MapLabel"></strong>
+            <div id="team1MapStats" class="maps-grid"></div>
+          </div>
+          <div>
+            <strong id="team2MapLabel"></strong>
+            <div id="team2MapStats" class="maps-grid"></div>
+          </div>
+        </div>
+        <h4>Счёт серии</h4>
+        <ul id="series"></ul>
+        <h4>Вето карт</h4>
+        <ul id="veto"></ul>
+        <h4>Карты</h4>
+        <div id="maps" class="maps-grid"></div>
+      </div>
+    </section>
+
+    <section class="panel tab-panel" id="tab-team">
+      <h2>Статистика команды</h2>
+
+      <label for="profileTeamSearch">Поиск команды</label>
+      <input type="search" id="profileTeamSearch" placeholder="начните вводить название..." autocomplete="off">
+
+      <label for="profileTeamSelect">Команда</label>
+      <select id="profileTeamSelect"><option value="">— выберите команду —</option></select>
+
+      <div class="btn-row">
+        <button id="showProfileBtn" type="button" class="primary">Показать из БД</button>
+        <button id="refreshProfileBtn" type="button">Обновить с HLTV</button>
+        <button id="syncAllTeamsBtn" type="button">Обновить все команды</button>
+      </div>
+      <p class="hint">Данные сохраняются в БД при обновлении турниров и команд. Повторный просмотр — из БД без запросов к HLTV.</p>
+      <p id="profileStatus" class="status"></p>
+      <p id="profileMeta" class="status muted"></p>
+
+      <div id="teamProfile" class="hidden">
+        <h3 id="profileTitle"></h3>
+        <div class="stats-grid" id="profileSummary"></div>
+
+        <h4>Игроки</h4>
+        <ul id="profilePlayers"></ul>
+
+        <h4>Статистика по картам</h4>
+        <div id="profileMaps" class="maps-grid"></div>
+
+        <h4>Турниры</h4>
+        <ul id="profileEvents"></ul>
+
+        <h4>Последние матчи</h4>
+        <div id="profileMatches" class="match-list"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/app.js?v=7"></script>
+</body>
+</html>

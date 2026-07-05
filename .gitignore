@@ -1,0 +1,29 @@
+# Сборочные артефакты
+*.exe
+*.exe~
+/bin/
+/dist/
+
+# Базы данных SQLite (содержат пользовательские данные) — в любой подпапке
+*.db
+*.db-shm
+*.db-wal
+
+# Секреты и приватные данные (НЕ коммитить!)
+data/hltv.cookie
+data/chrome-profile/
+*.cookie
+
+# Логи и временные файлы
+*.log
+_test.html
+testdata/_test.html
+
+# Локальные веса модели (опционально — раскомментируйте, если не хотите делить)
+# data/weights.json
+
+# Системные файлы
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
