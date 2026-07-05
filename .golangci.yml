@@ -1,0 +1,47 @@
+run:
+  timeout: 5m
+  go: "1.25"
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - ineffassign
+    - gocritic
+    - revive
+    - gosec
+    - misspell
+    - unused
+    - gofmt
+    - goimports
+
+linters-settings:
+  goimports:
+    local-prefixes: psr
+  revive:
+    rules:
+      - name: exported
+        disabled: true
+  gosec:
+    excludes:
+      - G104  # unhandled errors (audited manually)
+      - G304  # file path from variable (trusted sources)
+  errcheck:
+    exclude-functions:
+      - (net/http.ResponseWriter).Write
+      - fmt.Fprint
+      - fmt.Fprintln
+      - fmt.Fprintf
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - gosec
+        - errcheck
+    - path: cmd/
+      linters:
+        - gosec
+  max-issues-per-linter: 0
+  max-same-issues: 0
