@@ -33,8 +33,8 @@ func newFetcher(cfg config.Config) (Fetcher, error) {
 }
 
 type FallbackFetcher struct {
-	primary   Fetcher
-	fallback  Fetcher
+	primary  Fetcher
+	fallback Fetcher
 }
 
 func (f *FallbackFetcher) Fetch(ctx context.Context, url string) (string, error) {
@@ -76,8 +76,7 @@ func looksLikeHLTV(body string) bool {
 	if looksBlocked(body) {
 		return false
 	}
-	return strings.Contains(lower, "hltv.org") && (
-		strings.Contains(lower, "counter-strike") ||
+	return strings.Contains(lower, "hltv.org") && (strings.Contains(lower, "counter-strike") ||
 		strings.Contains(lower, "navbar") ||
 		strings.Contains(lower, "/matches/") ||
 		strings.Contains(lower, "eventname"))
@@ -127,10 +126,10 @@ func (h *HTTPFetcher) fetchWithCookie(ctx context.Context, url string, cookie st
 	}
 
 	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests {
-		return string(data), fmt.Errorf("http %d", resp.StatusCode)
+		return string(data), fmt.Errorf("%w: http %d", ErrBlocked, resp.StatusCode)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return string(data), fmt.Errorf("http %d", resp.StatusCode)
+		return string(data), fmt.Errorf("%w: http %d", ErrBlocked, resp.StatusCode)
 	}
 
 	return string(data), nil
