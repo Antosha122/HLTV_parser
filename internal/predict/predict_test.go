@@ -40,13 +40,13 @@ func TestBo3SeriesProbability(t *testing.T) {
 
 func TestSimulateBo3Veto(t *testing.T) {
 	p1 := map[string]models.MapProfile{
-		"Mirage": {MapName: "Mirage", Wins: 10, Losses: 2, PickRate: 0.4},
+		"Mirage":  {MapName: "Mirage", Wins: 10, Losses: 2, PickRate: 0.4},
 		"Inferno": {MapName: "Inferno", Wins: 3, Losses: 8},
-		"Nuke":   {MapName: "Nuke", Wins: 2, Losses: 9, BanRate: 0.5},
+		"Nuke":    {MapName: "Nuke", Wins: 2, Losses: 9, BanRate: 0.5},
 	}
 	p2 := map[string]models.MapProfile{
 		"Inferno": {MapName: "Inferno", Wins: 9, Losses: 3, PickRate: 0.35},
-		"Mirage": {MapName: "Mirage", Wins: 4, Losses: 7},
+		"Mirage":  {MapName: "Mirage", Wins: 4, Losses: 7},
 		"Ancient": {MapName: "Ancient", Wins: 6, Losses: 5},
 	}
 	for _, m := range ActiveDuty {

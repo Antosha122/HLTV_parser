@@ -8,9 +8,9 @@ import (
 )
 
 type BacktestOptions struct {
-	Limit       int
-	MinHistory  int
-	Warmup      int
+	Limit      int
+	MinHistory int
+	Warmup     int
 }
 
 type BacktestMatch struct {
@@ -27,14 +27,14 @@ type BacktestMatch struct {
 }
 
 type BacktestResult struct {
-	Total      int               `json:"total"`
-	Correct    int               `json:"correct"`
-	Accuracy   float64           `json:"accuracy_pct"`
-	LogLoss    float64           `json:"log_loss"`
-	Brier      float64           `json:"brier_score"`
-	Weights    Weights           `json:"weights"`
-	Samples    []BacktestMatch   `json:"samples,omitempty"`
-	ByFormat   map[string]FormatStats `json:"by_format"`
+	Total    int                    `json:"total"`
+	Correct  int                    `json:"correct"`
+	Accuracy float64                `json:"accuracy_pct"`
+	LogLoss  float64                `json:"log_loss"`
+	Brier    float64                `json:"brier_score"`
+	Weights  Weights                `json:"weights"`
+	Samples  []BacktestMatch        `json:"samples,omitempty"`
+	ByFormat map[string]FormatStats `json:"by_format"`
 }
 
 type FormatStats struct {
@@ -148,4 +148,3 @@ func (e *Engine) Backtest(opt BacktestOptions) (BacktestResult, error) {
 
 	return result, nil
 }
-
