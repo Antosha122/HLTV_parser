@@ -26,18 +26,18 @@ type TeamMatchRow struct {
 }
 
 type TeamProfile struct {
-	Team          models.Team       `json:"team"`
-	Players       []models.Player   `json:"players"`
-	MatchesTotal  int               `json:"matches_total"`
-	Wins          int               `json:"wins"`
-	Losses        int               `json:"losses"`
-	WinRate       float64           `json:"win_rate"`
-	RecentWins    int               `json:"recent_wins"`
-	RecentTotal   int               `json:"recent_total"`
-	RecentWinRate float64           `json:"recent_win_rate"`
-	MapStats      []MapStat         `json:"map_stats"`
-	Events        []TeamEventStat   `json:"events"`
-	RecentMatches []TeamMatchRow    `json:"recent_matches"`
+	Team          models.Team     `json:"team"`
+	Players       []models.Player `json:"players"`
+	MatchesTotal  int             `json:"matches_total"`
+	Wins          int             `json:"wins"`
+	Losses        int             `json:"losses"`
+	WinRate       float64         `json:"win_rate"`
+	RecentWins    int             `json:"recent_wins"`
+	RecentTotal   int             `json:"recent_total"`
+	RecentWinRate float64         `json:"recent_win_rate"`
+	MapStats      []MapStat       `json:"map_stats"`
+	Events        []TeamEventStat `json:"events"`
+	RecentMatches []TeamMatchRow  `json:"recent_matches"`
 }
 
 type MapStat struct {
