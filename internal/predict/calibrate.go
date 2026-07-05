@@ -2,15 +2,13 @@ package predict
 
 import (
 	"fmt"
-
-	"psr/internal/storage"
 )
 
 type CalibrateResult struct {
-	BestWeights Weights         `json:"best_weights"`
-	Before      BacktestResult  `json:"before"`
-	After       BacktestResult  `json:"after"`
-	Iterations  int             `json:"iterations"`
+	BestWeights Weights        `json:"best_weights"`
+	Before      BacktestResult `json:"before"`
+	After       BacktestResult `json:"after"`
+	Iterations  int            `json:"iterations"`
 }
 
 func (e *Engine) Calibrate(opt BacktestOptions) (CalibrateResult, error) {
@@ -64,7 +62,7 @@ func (e *Engine) Calibrate(opt BacktestOptions) (CalibrateResult, error) {
 	}, nil
 }
 
-func CalibrateAndSave(db *storage.DB, weightsPath string, opt BacktestOptions) (CalibrateResult, error) {
+func CalibrateAndSave(db DataProvider, weightsPath string, opt BacktestOptions) (CalibrateResult, error) {
 	engine := NewWithWeightsPath(db, weightsPath)
 	res, err := engine.Calibrate(opt)
 	if err != nil {
