@@ -10,22 +10,22 @@ import (
 )
 
 type Engine struct {
-	db      *storage.DB
+	db      DataProvider
 	Weights Weights
 }
 
-func NewEngine(db *storage.DB, weights Weights) *Engine {
+func NewEngine(db DataProvider, weights Weights) *Engine {
 	if weights == (Weights{}) {
 		weights = DefaultWeights
 	}
 	return &Engine{db: db, Weights: weights.Normalize()}
 }
 
-func New(db *storage.DB) *Engine {
+func New(db DataProvider) *Engine {
 	return NewEngine(db, DefaultWeights)
 }
 
-func NewWithWeightsPath(db *storage.DB, path string) *Engine {
+func NewWithWeightsPath(db DataProvider, path string) *Engine {
 	return NewEngine(db, LoadWeights(path))
 }
 
