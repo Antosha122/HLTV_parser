@@ -4,18 +4,16 @@ import (
 	"context"
 	"fmt"
 
-	"psr/internal/hltv"
 	"psr/internal/logx"
 	"psr/internal/models"
-	"psr/internal/storage"
 )
 
 type Service struct {
-	client *hltv.Client
-	db     *storage.DB
+	client Source
+	db     Store
 }
 
-func New(client *hltv.Client, db *storage.DB) *Service {
+func New(client Source, db Store) *Service {
 	return &Service{client: client, db: db}
 }
 
@@ -23,6 +21,14 @@ type TeamOptions struct {
 	TeamID     int
 	Months     int
 	MaxMatches int
+}
+
+// logSyncBestEffort logs a sync result but never fails the caller — a logging
+// error is reported via logx instead of propagating.
+func (s *Service) logSyncBestEffort(entityType string, entityID int, status, message string) {
+	if err := s.db.LogSync(entityType, entityID, status, message); err != nil {
+		logx.Warn("sync", "sync_log write failed (%s %d %s): %v", entityType, entityID, status, err)
+	}
 }
 
 func (s *Service) Team(ctx context.Context, opt TeamOptions) error {
@@ -35,45 +41,47 @@ func (s *Service) Team(ctx context.Context, opt TeamOptions) error {
 		teamName = td.Name
 	}
 
-	logx.Info("sync", "команда %d (%s): /results?team=", opt.TeamID, teamName)
+	logx.Info("sync", "team %d (%s): /results?team=", opt.TeamID, teamName)
 	SetTeamProgress(fmt.Sprintf("%s: /results?team=%d ...", teamName, opt.TeamID))
 
 	summaries, err := s.client.GetTeamResultsWithFallback(ctx, opt.TeamID, teamName)
 	if err != nil {
-		_ = s.db.LogSync("team", opt.TeamID, "partial", err.Error())
-		logx.Warn("sync", "матчи команды %d: %v (профиль сохранён)", opt.TeamID, err)
+		s.logSyncBestEffort("team", opt.TeamID, "partial", err.Error())
+		logx.Warn("sync", "team %d matches: %v (profile saved)", opt.TeamID, err)
 		return nil
 	}
 	if len(summaries) == 0 {
-		_ = s.db.LogSync("team", opt.TeamID, "partial", "no matches in range")
-		logx.Warn("sync", "команда %d: матчи не найдены (профиль сохранён)", opt.TeamID)
+		s.logSyncBestEffort("team", opt.TeamID, "partial", "no matches in range")
+		logx.Warn("sync", "team %d: no matches found (profile saved)", opt.TeamID)
 		return nil
 	}
 	summaries = FilterMatchSummaries(summaries)
-	logx.Info("sync", "найдено %d матчей для команды %d", len(summaries), opt.TeamID)
+	logx.Info("sync", "found %d matches for team %d", len(summaries), opt.TeamID)
 
 	limit := len(summaries)
 	if opt.MaxMatches > 0 && opt.MaxMatches < limit {
 		limit = opt.MaxMatches
 	}
-	SetTeamProgress(fmt.Sprintf("Команда %d: сохранение %d матчей из results...", opt.TeamID, limit))
+	SetTeamProgress(fmt.Sprintf("Team %d: saving %d matches from results...", opt.TeamID, limit))
 	synced, err := s.syncMatchSummaries(ctx, summaries, limit, func(i, total, id int) {
-		SetTeamProgress(fmt.Sprintf("Команда %d: матч %d/%d (id %d)", opt.TeamID, i, total, id))
+		SetTeamProgress(fmt.Sprintf("Team %d: match %d/%d (id %d)", opt.TeamID, i, total, id))
 	})
 	if err != nil {
 		return err
 	}
 
-	_ = s.db.LogSync("team", opt.TeamID, "ok", fmt.Sprintf("matches=%d synced=%d", len(summaries), synced))
-	logx.Info("sync", "команда %d: синхронизировано %d/%d матчей", opt.TeamID, synced, len(summaries))
+	s.logSyncBestEffort("team", opt.TeamID, "ok", fmt.Sprintf("matches=%d synced=%d", len(summaries), synced))
+	logx.Info("sync", "team %d: synced %d/%d matches", opt.TeamID, synced, len(summaries))
 
-	// Профиль (игроки) — после матчей, не блокирует основную задачу.
+	// Profile (players) — after matches, doesn't block the main task.
 	if page, err := s.client.LoadTeamPage(ctx, opt.TeamID, teamName); err == nil {
-		_ = s.saveTeam(page.Detail)
+		if saveErr := s.saveTeam(page.Detail); saveErr != nil {
+			logx.Warn("sync", "save team %d profile: %v", opt.TeamID, saveErr)
+		}
 		if page.Detail.Name != "" {
 			teamName = page.Detail.Name
 		}
-		logx.Info("sync", "команда %s: профиль, игроков %d", page.Detail.Name, len(page.Detail.Players))
+		logx.Info("sync", "team %s: profile, %d players", page.Detail.Name, len(page.Detail.Players))
 	}
 
 	start, end := MapStatsPeriod()
@@ -89,16 +97,16 @@ func (s *Service) Match(ctx context.Context, matchID int) error {
 
 	detail, err := s.client.GetMatch(ctx, matchID)
 	if err != nil {
-		_ = s.db.LogSync("match", matchID, "error", err.Error())
+		s.logSyncBestEffort("match", matchID, "error", err.Error())
 		return fmt.Errorf("get match: %w", err)
 	}
 
 	if err := s.saveMatchFromDetail(ctx, detail); err != nil {
-		_ = s.db.LogSync("match", matchID, "error", err.Error())
+		s.logSyncBestEffort("match", matchID, "error", err.Error())
 		return fmt.Errorf("save match: %w", err)
 	}
 
-	_ = s.db.LogSync("match", matchID, "ok", "")
+	s.logSyncBestEffort("match", matchID, "ok", "")
 	return nil
 }
 
@@ -114,7 +122,7 @@ func (s *Service) Teams(ctx context.Context, team1ID, team2ID, months int) error
 	if err != nil {
 		return err
 	}
-	logx.Info("sync", "h2h %d vs %d: %d матчей в БД", team1ID, team2ID, len(h2h))
+	logx.Info("sync", "h2h %d vs %d: %d matches in DB", team1ID, team2ID, len(h2h))
 	return nil
 }
 
@@ -129,4 +137,3 @@ func (s *Service) saveTeam(team models.TeamDetail) error {
 	}
 	return nil
 }
-
