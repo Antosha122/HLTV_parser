@@ -52,35 +52,92 @@
 | Логи | Кастомный `internal/logx` (stdout + in-memory history + SSE) |
 
 ---
+## Архитектура
 
-## Запуск
+```
+┌──────────────────────────────────────────────────────────────┐
+│                        cmd/psr (CLI)                         │
+│   serve │ predict │ sync │ backtest │ calibrate │ events ... │
+└──────┬────────────────────────────────────────────┬──────────┘
+       │                                            │
+       ▼                                            ▼
+┌─────────────┐     ┌──────────────┐      ┌──────────────────┐
+│  internal/  │     │  internal/   │      │   internal/api   │
+│   predict   │     │    sync      │      │  (HTTP + static) │
+│             │     │              │      │                  │
+│ Elo · Form  │     │ events ·     │      │ /api/predict     │
+│ H2H · Maps  │     │ matches ·    │      │ /api/sync        │
+│ Veto · Bo3  │     │ teams ·      │      │ /api/logs (SSE)  │
+│ Backtest    │     │ map stats    │      │ /api/teams       │
+│ Calibrate   │     │              │      │                  │
+└──────┬──────┘     └──────┬───────┘      └────────┬─────────┘
+       │                   │                       │
+       ▼                   ▼                       ▼
+┌──────────────────────────────────────────────────────────────┐
+│                     internal/storage                         │
+│                     SQLite (WAL mode)                        │
+│  teams · players · matches · events · vetoes · team_map_stats│
+└──────────────────────────────────────────────────────────────┘
+       ▲
+       │
+┌──────┴───────────────────────────────────────────────────────┐
+│                     internal/hltv                            │
+│   HTTP+cookie (tls-client) → Chrome/CDP (go-rod) fallback    │
+│   Парсеры: events, results, teams, match, ranking, maps      │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**Поток данных:**
+
+1. **Сбор** (`internal/hltv`): HTTP-запросы к HLTV с TLS-фингерпринтом и cookie `cf_clearance` для обхода Cloudflare. При отсутствии cookie — автоматизация реального Chrome через CDP.
+2. **Синхронизация** (`internal/sync`): оркестрация загрузки — турниры → участники → матчи → история команд → статистика карт. Идемпотентные upsert-операции.
+3. **Хранение** (`internal/storage`): SQLite с миграциями, WAL-режимом и `busy_timeout`.
+4. **Прогноз** (`internal/predict`): ансамбль из 4 сигналов + veto-симуляция; кэш Elo-рейтингов для производительности.
+5. **API/UI** (`internal/api`): HTTP-эндпоинты + встроенный веб-интерфейс с live-логами через SSE.
+
+---
+
+## Быстрый старт
+
+### Требования
+
+- **Go 1.25+** ([скачать](https://go.dev/dl/))
+- **Google Chrome** (для режима обхода Cloudflare через CDP)
+- ОС: Windows / Linux / macOS
+
+### Первый запуск
 
 ```bash
+# 1. Клонировать репозиторий
+git clone https://github.com/Antosha122/HLTV_parser.git
+cd HLTV_parser
+
+# 2. Запустить веб-интерфейс (сборка + автозапуск браузера)
 go run ./cmd/psr
 ```
 
-Команды CLI:
+Программа:
+1. Создаст базу данных `data/psr.db`
+2. Запустит HTTP-сервер на `:8080`
+3. Откроет Chrome с профилем PSR
 
-```bash
-psr events [-status ongoing|upcoming|past]
-psr sync teams -team1 <id> -team2 <id> [-months 3]
-psr predict -team1 <id> -team2 <id> [-format bo3]
-psr backtest
-psr calibrate
+**В Windows** используйте готовые скрипты:
+
+```cmd
+run.bat     :: Сборка + запуск веб-интерфейса (HTTP-режим, cookie)
+sync.bat    :: Интерактивная синхронизация двух команд
+stop.bat    :: Остановка всех процессов PSR
 ```
 
-## Переменные окружения
+### Первичная загрузка данных (через веб-интерфейс)
 
-| Переменная | Описание | По умолчанию |
-|---|---|---|
-| `PSR_DB_PATH` | Путь к SQLite | `data/psr.db` |
-| `PSR_API_ADDR` | Адрес HTTP-сервера | `:8080` |
-| `PSR_WEIGHTS_PATH` | Файл весов модели | `data/weights.json` |
-| `HLTV_COOKIE` | Cookie для обхода Cloudflare | — |
-| `HLTV_USE_BROWSER` | Использовать Chrome как fallback | `false` |
+1. Нажмите **«1. Открыть HLTV»** — откроется Chrome с профилем PSR.
+2. Пройдите капчу Cloudflare, откройте страницу **Events** на HLTV.
+3. Скопируйте cookie `cf_clearance` и `__cf_bm` (F12 → Application → Cookies).
+4. Вставьте в форму, нажмите **«Сохранить cookie»**.
+5. Нажмите **«2. Подключиться»** — проверка соединения с HLTV.
+6. Нажмите **«3. Обновить турниры и команды»** — начнётся загрузка.
 
-## Тесты
+> **Альтернатива (CLI):** см. раздел [Команды CLI](#команды-cli).
 
-```bash
-go test ./...
-go test -race -cover ./...
+---
