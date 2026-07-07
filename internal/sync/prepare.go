@@ -9,7 +9,7 @@ import (
 
 // EnsureTeamsData loads team data from HLTV only when stale or incomplete in DB.
 func (s *Service) EnsureTeamsData(ctx context.Context, team1ID, team2ID int) error {
-	defer ClearPredictProgress()
+	defer s.tracker.SetProgress("predict", "")
 
 	for i, teamID := range []int{team1ID, team2ID} {
 		stale, err := s.db.IsTeamStale(teamID)
@@ -18,7 +18,7 @@ func (s *Service) EnsureTeamsData(ctx context.Context, team1ID, team2ID int) err
 			continue
 		}
 		n, _ := s.db.CountTeamMatches(teamID)
-		SetPredictProgress(fmt.Sprintf("[%d/2] Загрузка команды %d в БД (%d матчей)...", i+1, teamID, n))
+		s.tracker.SetPredictProgress(fmt.Sprintf("[%d/2] Загрузка команды %d в БД (%d матчей)...", i+1, teamID, n))
 		logx.Info("predict", "команда %d: устаревшие данные — полная загрузка с HLTV", teamID)
 
 		if err := s.SyncTeamFull(ctx, teamID); err != nil {
