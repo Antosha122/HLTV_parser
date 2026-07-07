@@ -15,11 +15,12 @@ import (
 func (s *Server) handleTeams(w http.ResponseWriter, r *http.Request) {
 	search := strings.TrimSpace(r.URL.Query().Get("search"))
 	limit := queryInt(r, "limit", 100)
+	offset := queryInt(r, "offset", 0)
 
 	teams, err := s.db.ListTeamsWithMeta(search, limit)
 	if err != nil {
 		logx.Warn("api", "ListTeamsWithMeta: %v - fallback ListTeams", err)
-		basic, err2 := s.db.ListTeams(search, limit)
+		basic, err2 := s.db.ListTeamsPage(search, limit, offset)
 		if err2 != nil {
 			writeError(w, http.StatusInternalServerError, err2)
 			return
@@ -40,15 +41,20 @@ func (s *Server) handleTeamProfile(w http.ResponseWriter, r *http.Request) {
 	forceSync := r.URL.Query().Get("sync") == "1"
 	var syncErr string
 	if forceSync {
-		if psync.IsBusy() {
+		tr := s.syncTracker()
+		if tr != nil && tr.IsBusy() {
 			syncErr = "another operation is running - wait for completion"
 		} else {
-			psync.BeginOperation("team", fmt.Sprintf("Team %d: loading from HLTV...", id))
+			if tr != nil {
+				tr.BeginOperation("team", fmt.Sprintf("Team %d: loading from HLTV...", id))
+			}
 			syncErr = s.runTeamSync(s.detachedCtx(), id)
-			if syncErr != "" {
-				psync.FailRefresh(fmt.Errorf("%s", syncErr))
-			} else {
-				psync.EndOperation("Team load complete")
+			if tr != nil {
+				if syncErr != "" {
+					tr.FailRefresh(fmt.Errorf("%s", syncErr))
+				} else {
+					tr.EndOperation("Team load complete")
+				}
 			}
 		}
 	}
@@ -69,31 +75,45 @@ func (s *Server) handleTeamSync(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid team id"))
 		return
 	}
-	if psync.IsBusy() {
-		writeJSON(w, map[string]any{"started": false, "status": psync.CurrentStatus()})
+	tr := s.syncTracker()
+	if tr != nil && tr.IsBusy() {
+		writeJSON(w, map[string]any{"started": false, "status": tr.CurrentStatus()})
 		return
 	}
 
 	ctx := s.detachedCtx()
 	go func() {
-		psync.BeginOperation("team", fmt.Sprintf("Team %d: loading from HLTV...", id))
+		if tr != nil {
+			tr.BeginOperation("team", fmt.Sprintf("Team %d: loading from HLTV...", id))
+		}
 		if syncErr := s.runTeamSync(ctx, id); syncErr != "" {
-			psync.FailRefresh(fmt.Errorf("%s", syncErr))
+			if tr != nil {
+				tr.FailRefresh(fmt.Errorf("%s", syncErr))
+			}
 			return
 		}
-		psync.EndOperation("Team load complete")
+		if tr != nil {
+			tr.EndOperation("Team load complete")
+		}
 	}()
 
-	writeJSON(w, map[string]any{"started": true, "status": psync.CurrentStatus()})
+	st := psync.Status{}
+	if tr != nil {
+		st = tr.CurrentStatus()
+	}
+	writeJSON(w, map[string]any{"started": true, "status": st})
 }
 
 func (s *Server) handleTeamsSyncAll(w http.ResponseWriter, r *http.Request) {
-	if psync.IsBusy() {
+	tr := s.syncTracker()
+	if tr != nil && tr.IsBusy() {
 		logx.Warn("api", "teams sync: another operation already running")
-		writeJSON(w, map[string]any{"started": false, "status": psync.CurrentStatus()})
+		writeJSON(w, map[string]any{"started": false, "status": tr.CurrentStatus()})
 		return
 	}
-	psync.ClearStaleRunning()
+	if tr != nil {
+		tr.ClearStaleRunning()
+	}
 	reqCtx := s.requestCtx(r)
 	if err := s.ensureHLTV(reqCtx); err != nil {
 		writeError(w, http.StatusBadRequest, s.hltvError(err))
@@ -111,17 +131,22 @@ func (s *Server) handleTeamsSyncAll(w http.ResponseWriter, r *http.Request) {
 	if parent == nil {
 		parent = context.Background()
 	}
-	bgCtx := psync.NewRefreshContext(parent)
+	bgCtx := syncer.Cancel().NewContext(parent)
 	go func() {
-		psync.BeginRefresh()
+		if tr != nil {
+			tr.BeginRefresh()
+		}
 		var res psync.RefreshResult
 		var syncErr error
 		defer func() {
 			if syncErr != nil {
-				if errors.Is(syncErr, context.Canceled) {
-					psync.EndRefreshCancelled()
-				} else {
-					psync.FailRefresh(syncErr)
+				if tr != nil {
+					if errors.Is(syncErr, context.Canceled) {
+						tr.EndRefreshCancelled()
+					} else {
+						tr.FailRefresh(syncErr)
+					}
+					syncer.Cancel().Clear()
 				}
 			}
 		}()
@@ -135,9 +160,16 @@ func (s *Server) handleTeamsSyncAll(w http.ResponseWriter, r *http.Request) {
 		if logErr := s.db.LogSync("refresh", 0, "ok", fmt.Sprintf("teams=%d matches=%d", teamsSynced, matchesAdded)); logErr != nil {
 			logx.Warn("api", "log sync write failed: %v", logErr)
 		}
-		psync.EndRefresh(res)
+		if tr != nil {
+			tr.EndRefresh(res)
+		}
+		syncer.Cancel().Clear()
 		logx.Info("api", "teams sync: %d teams, +%d matches", teamsSynced, matchesAdded)
 	}()
 
-	writeJSON(w, map[string]any{"started": true, "status": psync.CurrentStatus()})
+	st := psync.Status{}
+	if tr != nil {
+		st = tr.CurrentStatus()
+	}
+	writeJSON(w, map[string]any{"started": true, "status": st})
 }
