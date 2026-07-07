@@ -12,13 +12,16 @@ import (
 func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 	logx.Info("api", "refresh requested from UI")
 
-	if psync.IsRefreshRunning() {
-		st := psync.CurrentStatus()
+	tr := s.syncTracker()
+	if tr != nil && tr.IsRefreshRunning() {
+		st := tr.CurrentStatus()
 		logx.Warn("api", "refresh already running: %s", st.Detail)
 		writeJSON(w, map[string]any{"started": false, "status": st})
 		return
 	}
-	psync.ClearStaleRunning()
+	if tr != nil {
+		tr.ClearStaleRunning()
+	}
 
 	reqCtx := s.requestCtx(r)
 	if err := s.ensureHLTV(reqCtx); err != nil {
@@ -42,7 +45,7 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 	if parent == nil {
 		parent = context.Background()
 	}
-	bgCtx := psync.NewRefreshContext(parent)
+	bgCtx := syncer.Cancel().NewContext(parent)
 	go func() {
 		logx.Info("api", "background refresh started")
 		res, err := syncer.Refresh(bgCtx, psync.RefreshOptions{})
@@ -58,14 +61,19 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 			res.EventsSynced, res.MatchesSynced, res.HistoryMatches)
 	}()
 
-	writeJSON(w, map[string]any{"started": true, "status": psync.CurrentStatus()})
+	st := psync.Status{}
+	if tr != nil {
+		st = tr.CurrentStatus()
+	}
+	writeJSON(w, map[string]any{"started": true, "status": st})
 }
 
 func (s *Server) handleRefreshEvents(w http.ResponseWriter, r *http.Request) {
 	logx.Info("api", "events-only refresh requested from UI")
 
-	if psync.IsBusy() {
-		writeJSON(w, map[string]any{"started": false, "status": psync.CurrentStatus()})
+	tr := s.syncTracker()
+	if tr != nil && tr.IsBusy() {
+		writeJSON(w, map[string]any{"started": false, "status": tr.CurrentStatus()})
 		return
 	}
 
@@ -99,24 +107,39 @@ func (s *Server) handleRefreshEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	writeJSON(w, map[string]any{"started": true, "status": psync.CurrentStatus()})
+	st := psync.Status{}
+	if tr != nil {
+		st = tr.CurrentStatus()
+	}
+	writeJSON(w, map[string]any{"started": true, "status": st})
 }
 
 func (s *Server) handleSyncStop(w http.ResponseWriter, r *http.Request) {
-	if !psync.IsCancellableRefresh() {
-		writeJSON(w, map[string]any{"stopped": false, "status": psync.CurrentStatus()})
+	tr := s.syncTracker()
+	if tr == nil {
+		writeJSON(w, map[string]any{"stopped": false, "status": psync.Status{}})
 		return
 	}
-	if psync.CancelRefresh() {
+	if !tr.IsCancellableRefresh() {
+		writeJSON(w, map[string]any{"stopped": false, "status": tr.CurrentStatus()})
+		return
+	}
+	s.mu.Lock()
+	syncer := s.syncer
+	s.mu.Unlock()
+	if syncer != nil && syncer.Cancel().Cancel() {
 		logx.Info("api", "refresh stop requested from UI")
-		writeJSON(w, map[string]any{"stopped": true, "status": psync.CurrentStatus()})
+		writeJSON(w, map[string]any{"stopped": true, "status": tr.CurrentStatus()})
 		return
 	}
-	writeJSON(w, map[string]any{"stopped": false, "status": psync.CurrentStatus()})
+	writeJSON(w, map[string]any{"stopped": false, "status": tr.CurrentStatus()})
 }
 
 func (s *Server) handleSyncStatus(w http.ResponseWriter, r *http.Request) {
-	st := psync.CurrentStatus()
+	st := psync.Status{}
+	if tr := s.syncTracker(); tr != nil {
+		st = tr.CurrentStatus()
+	}
 	out := map[string]any{
 		"running":          st.Running,
 		"phase":            st.Phase,
