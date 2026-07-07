@@ -214,7 +214,10 @@ func teamProfileResponse(profile storage.TeamProfile, meta storage.TeamMeta, syn
 }
 
 func (s *Server) runTeamSync(ctx context.Context, teamID int) string {
-	defer psync.ClearTeamProgress()
+	tr := s.syncTracker()
+	if tr != nil {
+		defer tr.SetProgress("team", "")
+	}
 	if err := s.ensureHLTV(ctx); err != nil {
 		return hltv.UserError(err)
 	}
@@ -237,4 +240,12 @@ func (s *Server) runTeamSync(ctx context.Context, teamID int) string {
 	return ""
 }
 
-var ()
+// syncTracker returns the StatusTracker of the current sync.Service, or nil.
+func (s *Server) syncTracker() *psync.StatusTracker {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.syncer == nil {
+		return nil
+	}
+	return s.syncer.Tracker()
+}
