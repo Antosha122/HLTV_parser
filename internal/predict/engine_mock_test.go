@@ -16,6 +16,8 @@ type fakeDataProvider struct {
 	form     map[int]formResult
 	mapStats map[int][]models.TeamMapStat
 	vetoes   map[int][]storage.VetoRecord
+	eloCache map[int]float64
+	eloFresh bool
 }
 
 type formResult struct {
@@ -84,6 +86,24 @@ func (f *fakeDataProvider) GetTeamMapStatsForTeam(teamID int) ([]models.TeamMapS
 
 func (f *fakeDataProvider) GetTeamVetoes(teamID, limit int) ([]storage.VetoRecord, error) {
 	return f.vetoes[teamID], nil
+}
+
+func (f *fakeDataProvider) GetEloRatings() (map[int]float64, error) {
+	return f.eloCache, nil
+}
+
+func (f *fakeDataProvider) EloCacheFresh() (bool, error) {
+	return f.eloFresh, nil
+}
+
+func (f *fakeDataProvider) SaveEloRatings(ratings map[int]float64) error {
+	if f.eloCache == nil {
+		f.eloCache = make(map[int]float64)
+	}
+	for k, v := range ratings {
+		f.eloCache[k] = v
+	}
+	return nil
 }
 
 func h2hKey(a, b int) string {
