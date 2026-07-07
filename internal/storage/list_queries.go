@@ -9,8 +9,18 @@ import (
 )
 
 func (db *DB) ListTeams(search string, limit int) ([]models.Team, error) {
-	if limit <= 0 {
+	return db.ListTeamsPage(search, limit, 0)
+}
+
+// ListTeamsPage returns a page of teams. limit is the page size (clamped to
+// [1, 500]); offset is the number of rows to skip (>= 0). Pass offset=0 for
+// the first page.
+func (db *DB) ListTeamsPage(search string, limit, offset int) ([]models.Team, error) {
+	if limit <= 0 || limit > 500 {
 		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
 	}
 
 	var rows *sql.Rows
@@ -21,14 +31,14 @@ func (db *DB) ListTeams(search string, limit int) ([]models.Team, error) {
 			SELECT id, name, hltv_rating, world_rank
 			FROM teams
 			ORDER BY COALESCE(world_rank, 9999), name
-			LIMIT ?`, limit)
+			LIMIT ? OFFSET ?`, limit, offset)
 	} else {
 		rows, err = db.sql.Query(`
 			SELECT id, name, hltv_rating, world_rank
 			FROM teams
 			WHERE LOWER(name) LIKE '%' || LOWER(?) || '%'
 			ORDER BY COALESCE(world_rank, 9999), name
-			LIMIT ?`, search, limit)
+			LIMIT ? OFFSET ?`, search, limit, offset)
 	}
 	if err != nil {
 		return nil, err
@@ -52,8 +62,17 @@ func (db *DB) GetEvent(id int) (models.Event, error) {
 }
 
 func (db *DB) ListEvents(search string, limit int) ([]models.Event, error) {
-	if limit <= 0 {
+	return db.ListEventsPage(search, limit, 0)
+}
+
+// ListEventsPage returns a page of events. limit is the page size (clamped to
+// [1, 500]); offset is the number of rows to skip (>= 0).
+func (db *DB) ListEventsPage(search string, limit, offset int) ([]models.Event, error) {
+	if limit <= 0 || limit > 500 {
 		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
 	}
 	search = strings.TrimSpace(search)
 	var rows *sql.Rows
@@ -67,7 +86,7 @@ func (db *DB) ListEvents(search string, limit int) ([]models.Event, error) {
 				WHEN 'upcoming' THEN 1
 				WHEN '' THEN 2
 				ELSE 3
-			END, updated_at DESC LIMIT ?`, limit)
+			END, updated_at DESC LIMIT ? OFFSET ?`, limit, offset)
 	} else {
 		rows, err = db.sql.Query(`
 			SELECT id, name, status FROM events
@@ -78,7 +97,7 @@ func (db *DB) ListEvents(search string, limit int) ([]models.Event, error) {
 				WHEN 'upcoming' THEN 1
 				WHEN '' THEN 2
 				ELSE 3
-			END, updated_at DESC LIMIT ?`, search, limit)
+			END, updated_at DESC LIMIT ? OFFSET ?`, search, limit, offset)
 	}
 	if err != nil {
 		return nil, err
