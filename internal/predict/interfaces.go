@@ -27,7 +27,17 @@ type MatchProvider interface {
 // MapProfileProvider exposes map stats and vetoes used to build map profiles.
 type MapProfileProvider interface {
 	GetTeamMapStatsForTeam(teamID int) ([]models.TeamMapStat, error)
-	GetTeamVetoes(teamID, limit int) ([]storage.VetoRecord, error)
+	GetTeamVetoes(teamID int, limit int) ([]storage.VetoRecord, error)
+}
+
+// EloCacheProvider exposes the persisted Elo cache so ComputeElo doesn't have
+// to run over the full match history on every prediction. When the cache is
+// stale (e.g. after new matches were synced) the engine recomputes and stores
+// the updated ratings.
+type EloCacheProvider interface {
+	GetEloRatings() (map[int]float64, error)
+	EloCacheFresh() (bool, error)
+	SaveEloRatings(ratings map[int]float64) error
 }
 
 // DataProvider bundles everything predict.Engine needs from storage.
@@ -36,4 +46,5 @@ type DataProvider interface {
 	TeamProvider
 	MatchProvider
 	MapProfileProvider
+	EloCacheProvider
 }
