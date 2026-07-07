@@ -36,21 +36,22 @@ func (s *Service) Refresh(ctx context.Context, opt RefreshOptions) (RefreshResul
 		opt.MaxMatches = 120
 	}
 
-	BeginRefresh()
+	s.tracker.BeginRefresh()
 	var res RefreshResult
 	var refreshErr error
 	defer func() {
 		if refreshErr != nil {
 			if errors.Is(refreshErr, context.Canceled) {
-				EndRefreshCancelled()
+				s.tracker.EndRefreshCancelled()
 			} else {
-				FailRefresh(refreshErr)
+				s.tracker.FailRefresh(refreshErr)
 			}
+			s.cancel.Clear()
 		}
 	}()
 
 	logx.Info("sync", "начало обновления (макс. турниров: %d, матчей: %d)", opt.MaxEvents, opt.MaxMatches)
-	SetProgress("events", "Загрузка списка турниров с HLTV...")
+	s.tracker.SetProgress("events", "Загрузка списка турниров с HLTV...")
 
 	events, err := s.client.GetEvents(ctx)
 	if err != nil {
@@ -60,7 +61,7 @@ func (s *Service) Refresh(ctx context.Context, opt RefreshOptions) (RefreshResul
 	res.EventsFetched = len(events)
 	logx.Info("sync", "получено турниров с HLTV: %d", len(events))
 
-	SetProgress("ranking", "Загрузка рейтинга команд HLTV...")
+	s.tracker.SetProgress("ranking", "Загрузка рейтинга команд HLTV...")
 	rankingTeams, rankErr := s.SyncRankingTeams(ctx)
 	if rankErr != nil {
 		logx.Warn("sync", "рейтинг HLTV: %v", rankErr)
@@ -69,7 +70,7 @@ func (s *Service) Refresh(ctx context.Context, opt RefreshOptions) (RefreshResul
 		res.TeamsSaved += len(rankingTeams)
 	}
 
-	SetProgress("events", "Сохранение турниров в БД...")
+	s.tracker.SetProgress("events", "Сохранение турниров в БД...")
 	for _, e := range events {
 		if e.Status != models.EventStatusOngoing && e.Status != models.EventStatusUpcoming {
 			continue
@@ -147,10 +148,10 @@ func (s *Service) Refresh(ctx context.Context, opt RefreshOptions) (RefreshResul
 	for i, e := range target {
 		if err := ctx.Err(); err != nil {
 			refreshErr = err
-			_ = s.db.LogSync("refresh", 0, "cancelled", "user stop")
+			s.logSyncBestEffort("refresh", 0, "cancelled", "user stop")
 			return res, err
 		}
-		SetProgress("event", fmt.Sprintf("[%d/%d] %s", i+1, len(target), e.Name))
+		s.tracker.SetProgress("event", fmt.Sprintf("[%d/%d] %s", i+1, len(target), e.Name))
 		logx.Info("sync", "загрузка данных [%s] id=%d status=%s", e.Name, e.ID, e.Status)
 
 		n, msg, teams := s.syncEvent(ctx, e, matchesLeft)
@@ -190,15 +191,16 @@ func (s *Service) Refresh(ctx context.Context, opt RefreshOptions) (RefreshResul
 			return teamList[i].Name < teamList[j].Name
 		})
 
-		SetProgress("history", fmt.Sprintf("Матчи %d команд: /results?team= ...", len(teamList)))
+		s.tracker.SetProgress("history", fmt.Sprintf("Матчи %d команд: /results?team= ...", len(teamList)))
 		logx.Info("sync", "история: загрузка матчей для %d команд с /results?team=", len(teamList))
 		res.HistoryMatches = s.SyncTeamsParallel(ctx, teamList, teamSyncWorkers)
 	}
 
 	logx.Info("sync", "готово: турниров=%d команд=%d матчей=%d история=%d",
 		res.EventsSynced, res.TeamsSaved, res.MatchesSynced, res.HistoryMatches)
-	_ = s.db.LogSync("refresh", 0, "ok", fmt.Sprintf("events=%d matches=%d history=%d", res.EventsSynced, res.MatchesSynced, res.HistoryMatches))
-	EndRefresh(res)
+	s.logSyncBestEffort("refresh", 0, "ok", fmt.Sprintf("events=%d matches=%d history=%d", res.EventsSynced, res.MatchesSynced, res.HistoryMatches))
+	s.tracker.EndRefresh(res)
+	s.cancel.Clear()
 	return res, nil
 }
 
@@ -304,7 +306,7 @@ func (s *Service) syncEvent(ctx context.Context, event models.Event, maxMatches 
 						if err := s.db.UpsertTeam(t); err == nil {
 							count.teams++
 						}
-						_ = s.db.UpsertEventTeam(event.ID, t.ID)
+						s.logEventTeamBestEffort(event.ID, t.ID)
 					}
 				}
 			}
@@ -316,8 +318,10 @@ func (s *Service) syncEvent(ctx context.Context, event models.Event, maxMatches 
 				continue
 			}
 		} else {
-			_ = s.db.UpsertEvent(event)
-			_ = s.db.SetMatchEvent(summary.ID, event.ID, event.Name)
+			s.logEventBestEffort(event)
+			if err := s.db.SetMatchEvent(summary.ID, event.ID, event.Name); err != nil {
+				logx.Warn("sync", "  матч %d: связь с турниром: %v", summary.ID, err)
+			}
 		}
 		synced++
 	}
@@ -337,7 +341,7 @@ func (s *Service) syncEvent(ctx context.Context, event models.Event, maxMatches 
 				if raw.ID > 0 {
 					if _, known := resolvedTeams[raw.ID]; !known {
 						resolvedTeams[raw.ID] = raw
-						_ = s.db.UpsertEventTeam(event.ID, raw.ID)
+						s.logEventTeamBestEffort(event.ID, raw.ID)
 					}
 				}
 			}
@@ -428,7 +432,7 @@ func (s *Service) saveEventTeams(ctx context.Context, event models.Event, teams 
 			logx.Warn("sync", "  сохранение команды %d: %v", t.ID, err)
 			continue
 		}
-		_ = s.db.UpsertEventTeam(event.ID, t.ID)
+		s.logEventTeamBestEffort(event.ID, t.ID)
 		saved++
 	}
 	return saved
@@ -469,6 +473,21 @@ func (s *Service) MatchWithEvent(ctx context.Context, matchID int, event models.
 	if err := s.Match(ctx, matchID); err != nil {
 		return err
 	}
-	_ = s.db.UpsertEvent(event)
+	s.logEventBestEffort(event)
 	return s.db.SetMatchEvent(matchID, event.ID, event.Name)
+}
+
+// logEventTeamBestEffort links a team to an event but never fails the caller —
+// a linkage error is reported via logx instead of propagating.
+func (s *Service) logEventTeamBestEffort(eventID, teamID int) {
+	if err := s.db.UpsertEventTeam(eventID, teamID); err != nil {
+		logx.Warn("sync", "event_team link (%d, %d): %v", eventID, teamID, err)
+	}
+}
+
+// logEventBestEffort upserts an event but never fails the caller.
+func (s *Service) logEventBestEffort(event models.Event) {
+	if err := s.db.UpsertEvent(event); err != nil {
+		logx.Warn("sync", "event upsert (%d): %v", event.ID, err)
+	}
 }
