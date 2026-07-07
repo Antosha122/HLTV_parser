@@ -18,13 +18,13 @@ type EventsListResult struct {
 // RefreshEventsList loads /events from HLTV and updates tournament metadata in the DB only.
 func (s *Service) RefreshEventsList(ctx context.Context) (EventsListResult, error) {
 	var res EventsListResult
-	BeginOperation("events", "Загрузка списка турниров с HLTV...")
+	s.tracker.BeginOperation("events", "Загрузка списка турниров с HLTV...")
 
 	logx.Info("sync", "обновление только списка турниров")
 	events, err := s.client.GetEvents(ctx)
 	if err != nil {
 		logx.Warn("sync", "список турниров: %v", err)
-		EndOperation("Ошибка загрузки турниров")
+		s.tracker.EndOperation("Ошибка загрузки турниров")
 		return res, err
 	}
 	res.EventsFetched = len(events)
@@ -47,8 +47,8 @@ func (s *Service) RefreshEventsList(ctx context.Context) (EventsListResult, erro
 		}
 	}
 	res.EventsSaved = saved
-	_ = s.db.LogSync("events", 0, "ok", fmt.Sprintf("fetched=%d saved=%d", res.EventsFetched, saved))
+	s.logSyncBestEffort("events", 0, "ok", fmt.Sprintf("fetched=%d saved=%d", res.EventsFetched, saved))
 	logx.Info("sync", "список турниров: получено %d, сохранено %d", res.EventsFetched, saved)
-	EndOperation(fmt.Sprintf("Турниры обновлены: %d", saved))
+	s.tracker.EndOperation(fmt.Sprintf("Турниры обновлены: %d", saved))
 	return res, nil
 }
