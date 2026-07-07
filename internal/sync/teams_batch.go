@@ -19,7 +19,7 @@ func (s *Service) SyncTeamFull(ctx context.Context, teamID int) error {
 	if teamID <= 0 {
 		return fmt.Errorf("team id required")
 	}
-	SetTeamProgress(fmt.Sprintf("Команда %d: профиль и игроки...", teamID))
+	s.tracker.SetTeamProgress(fmt.Sprintf("Команда %d: профиль и игроки...", teamID))
 	logx.Info("sync", "полная загрузка команды %d с HLTV", teamID)
 
 	return s.Team(ctx, TeamOptions{
@@ -59,7 +59,7 @@ func (s *Service) SyncTeamsParallel(ctx context.Context, teams []models.Team, wo
 			if name == "" {
 				name = fmt.Sprintf("team-%d", t.ID)
 			}
-			SetProgress("history", fmt.Sprintf("[%d/%d] %s — загрузка с HLTV", idx+1, len(teams), name))
+			s.tracker.SetProgress("history", fmt.Sprintf("[%d/%d] %s — загрузка с HLTV", idx+1, len(teams), name))
 
 			before, _ := s.db.CountTeamMatches(t.ID)
 			if err := s.SyncTeamFull(ctx, t.ID); err != nil {
@@ -112,7 +112,7 @@ func (s *Service) SyncAllTeams(ctx context.Context) (teamsSynced int, matchesAdd
 		}
 	}
 
-	SetProgress("teams", fmt.Sprintf("Обновление %d команд с HLTV (последовательно)...", len(teams)))
+	s.tracker.SetProgress("teams", fmt.Sprintf("Обновление %d команд с HLTV (последовательно)...", len(teams)))
 	matchesAdded = s.SyncTeamsParallel(ctx, teams, teamSyncWorkers)
 	logx.Info("sync", "обновлено команд: %d, новых матчей: %d", len(teams), matchesAdded)
 	return len(teams), matchesAdded, nil
