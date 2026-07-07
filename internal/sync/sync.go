@@ -8,14 +8,36 @@ import (
 	"psr/internal/models"
 )
 
+// Service orchestrates syncing HLTV data into the storage layer.
+//
+// Each Service owns its own StatusTracker and CancelManager, so multiple
+// instances can run in isolation (tests, multi-tenant deployments). The
+// package-level wrappers below delegate to a default tracker/cancel manager
+// only for backward compatibility with cmd/psr.
 type Service struct {
-	client Source
-	db     Store
+	client  Source
+	db      Store
+	tracker *StatusTracker
+	cancel  *CancelManager
 }
 
+// New creates a Service backed by the given Source and Store.
+// A fresh StatusTracker and CancelManager are created for this instance.
 func New(client Source, db Store) *Service {
-	return &Service{client: client, db: db}
+	return &Service{
+		client:  client,
+		db:      db,
+		tracker: NewStatusTracker(),
+		cancel:  NewCancelManager(),
+	}
 }
+
+// Tracker returns the Service's StatusTracker. Callers (api layer) should
+// use it instead of the package-level global status functions.
+func (s *Service) Tracker() *StatusTracker { return s.tracker }
+
+// Cancel returns the Service's CancelManager.
+func (s *Service) Cancel() *CancelManager { return s.cancel }
 
 type TeamOptions struct {
 	TeamID     int
@@ -42,7 +64,7 @@ func (s *Service) Team(ctx context.Context, opt TeamOptions) error {
 	}
 
 	logx.Info("sync", "team %d (%s): /results?team=", opt.TeamID, teamName)
-	SetTeamProgress(fmt.Sprintf("%s: /results?team=%d ...", teamName, opt.TeamID))
+	s.tracker.SetTeamProgress(fmt.Sprintf("%s: /results?team=%d ...", teamName, opt.TeamID))
 
 	summaries, err := s.client.GetTeamResultsWithFallback(ctx, opt.TeamID, teamName)
 	if err != nil {
@@ -62,9 +84,9 @@ func (s *Service) Team(ctx context.Context, opt TeamOptions) error {
 	if opt.MaxMatches > 0 && opt.MaxMatches < limit {
 		limit = opt.MaxMatches
 	}
-	SetTeamProgress(fmt.Sprintf("Team %d: saving %d matches from results...", opt.TeamID, limit))
+	s.tracker.SetTeamProgress(fmt.Sprintf("Team %d: saving %d matches from results...", opt.TeamID, limit))
 	synced, err := s.syncMatchSummaries(ctx, summaries, limit, func(i, total, id int) {
-		SetTeamProgress(fmt.Sprintf("Team %d: match %d/%d (id %d)", opt.TeamID, i, total, id))
+		s.tracker.SetTeamProgress(fmt.Sprintf("Team %d: match %d/%d (id %d)", opt.TeamID, i, total, id))
 	})
 	if err != nil {
 		return err
