@@ -8,7 +8,6 @@ import (
 	"psr/internal/logx"
 	"psr/internal/models"
 	"psr/internal/predict"
-	psync "psr/internal/sync"
 )
 
 func (s *Server) handlePredict(w http.ResponseWriter, r *http.Request) {
@@ -41,8 +40,11 @@ func (s *Server) handlePredict(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if needSync {
-		psync.BeginOperation("predict", "Preparing team data for prediction...")
-		defer psync.EndOperation("Prediction ready")
+		tr := s.syncTracker()
+		if tr != nil {
+			tr.BeginOperation("predict", "Preparing team data for prediction...")
+			defer tr.EndOperation("Prediction ready")
+		}
 		if err := s.ensureHLTV(workCtx); err != nil {
 			writeError(w, http.StatusBadRequest, s.hltvError(err))
 			return
