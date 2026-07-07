@@ -53,17 +53,10 @@ func (e *Engine) Predict(opt Options) (models.Prediction, error) {
 		return models.Prediction{}, fmt.Errorf("team2: %w", err)
 	}
 
-	var matches []storage.MatchRecord
-	if opt.AsOf.IsZero() {
-		matches, err = e.db.GetMatchesChronological(0)
-	} else {
-		matches, err = e.db.GetMatchesBefore(opt.AsOf, 0)
-	}
+	elo, err := e.eloRatings(opt.AsOf)
 	if err != nil {
 		return models.Prediction{}, err
 	}
-
-	elo := ComputeElo(matches)
 	pElo := EloWinProbability(
 		BlendedRating(elo, team1.Team),
 		BlendedRating(elo, team2.Team),
@@ -219,6 +212,40 @@ func mapStatSummaries(stats []models.TeamMapStat) []models.MapStatSummary {
 		})
 	}
 	return out
+}
+
+// eloRatings returns the Elo ratings map for the given moment.
+//
+// For live predictions (AsOf zero) it uses the persisted cache when it is fresh;
+// otherwise it recomputes over the full match history and stores the result so
+// subsequent predictions are O(1) until new matches arrive.
+//
+// For historical snapshots (AsOf set, used by backtest) the cache must not be
+// used because it reflects the latest state, so we recompute on the fly.
+func (e *Engine) eloRatings(asOf time.Time) (map[int]float64, error) {
+	if asOf.IsZero() {
+		if fresh, err := e.db.EloCacheFresh(); err == nil && fresh {
+			if cached, err := e.db.GetEloRatings(); err == nil && len(cached) > 0 {
+				return cached, nil
+			}
+		}
+		matches, err := e.db.GetMatchesChronological(0)
+		if err != nil {
+			return nil, err
+		}
+		ratings := ComputeElo(matches)
+		if saveErr := e.db.SaveEloRatings(ratings); saveErr != nil {
+			// Cache write failure is non-fatal; we still return ratings.
+			_ = saveErr
+		}
+		return ratings, nil
+	}
+
+	matches, err := e.db.GetMatchesBefore(asOf, 0)
+	if err != nil {
+		return nil, err
+	}
+	return ComputeElo(matches), nil
 }
 
 func (e *Engine) PredictProb(opt Options) (float64, error) {
