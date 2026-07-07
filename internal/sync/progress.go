@@ -48,7 +48,6 @@ func (t *StatusTracker) BeginRefresh() {
 }
 
 func (t *StatusTracker) EndRefresh(res RefreshResult) {
-	clearRefreshCancel()
 	res.FinishedAt = time.Now().UTC().Format(time.RFC3339)
 	t.mu.Lock()
 	t.status.Running = false
@@ -63,7 +62,6 @@ func (t *StatusTracker) EndRefresh(res RefreshResult) {
 }
 
 func (t *StatusTracker) EndRefreshCancelled() {
-	clearRefreshCancel()
 	t.mu.Lock()
 	t.status.Running = false
 	t.status.Phase = "cancelled"
@@ -73,7 +71,6 @@ func (t *StatusTracker) EndRefreshCancelled() {
 }
 
 func (t *StatusTracker) FailRefresh(err error) {
-	clearRefreshCancel()
 	t.mu.Lock()
 	t.status.Running = false
 	t.status.Phase = "error"
@@ -166,10 +163,19 @@ func (t *StatusTracker) CurrentStatus() Status {
 
 var defaultTracker = NewStatusTracker()
 
-func BeginRefresh()                       { defaultTracker.BeginRefresh() }
-func EndRefresh(res RefreshResult)        { defaultTracker.EndRefresh(res) }
-func EndRefreshCancelled()                { defaultTracker.EndRefreshCancelled() }
-func FailRefresh(err error)               { defaultTracker.FailRefresh(err) }
+func BeginRefresh() { defaultTracker.BeginRefresh() }
+func EndRefresh(res RefreshResult) {
+	defaultTracker.EndRefresh(res)
+	clearRefreshCancel()
+}
+func EndRefreshCancelled() {
+	defaultTracker.EndRefreshCancelled()
+	clearRefreshCancel()
+}
+func FailRefresh(err error) {
+	defaultTracker.FailRefresh(err)
+	clearRefreshCancel()
+}
 func SetProgress(phase, detail string)    { defaultTracker.SetProgress(phase, detail) }
 func BeginOperation(phase, detail string) { defaultTracker.BeginOperation(phase, detail) }
 func EndOperation(detail string)          { defaultTracker.EndOperation(detail) }
