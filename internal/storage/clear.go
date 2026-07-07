@@ -11,6 +11,7 @@ func (db *DB) ClearAll() error {
 		"vetoes",
 		"match_maps",
 		"team_map_stats",
+		"elo_ratings",
 		"event_teams",
 		"matches",
 		"players",
