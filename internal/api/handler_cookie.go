@@ -101,7 +101,7 @@ func (s *Server) handleDBClear(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	search := strings.TrimSpace(r.URL.Query().Get("search"))
-	events, err := s.db.ListEvents(search, queryInt(r, "limit", 50))
+	events, err := s.db.ListEventsPage(search, queryInt(r, "limit", 50), queryInt(r, "offset", 0))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
