@@ -18,14 +18,14 @@ func (s *Service) syncTeamMapStatsFromMatches(ctx context.Context, teamID int, t
 
 	if len(ids) > 0 {
 		logx.Info("sync", "команда %d: загрузка карт из %d матчей (/matches/)", teamID, len(ids))
-		SetTeamProgress(fmt.Sprintf("%s: карты из %d матчей...", teamName, len(ids)))
+		s.tracker.SetTeamProgress(fmt.Sprintf("%s: карты из %d матчей...", teamName, len(ids)))
 
 		withMaps := 0
 		for i, matchID := range ids {
 			if err := ctx.Err(); err != nil {
 				return
 			}
-			SetTeamProgress(fmt.Sprintf("%s: карты %d/%d (матч %d)", teamName, i+1, len(ids), matchID))
+			s.tracker.SetTeamProgress(fmt.Sprintf("%s: карты %d/%d (матч %d)", teamName, i+1, len(ids), matchID))
 			detail, err := s.client.GetMatch(ctx, matchID)
 			if err != nil {
 				logx.Warn("sync", "матч %d (карты): %v", matchID, err)
