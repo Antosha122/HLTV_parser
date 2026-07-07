@@ -1,0 +1,109 @@
+# Architecture
+
+This document describes the layering, data flow, and key design decisions of
+PSR. It is intended as a map for new contributors and as an
+[Architecture Decision Record](https://adr.github.io/) (ADR) log.
+
+## 1. Layered structure
+
+```
+cmd/psr                  CLI entrypoint (flag parsing, wiring, signal handling)
+└──> internal/api         HTTP server, handlers, SSE logs, embedded static UI
+     └──> internal/predict   prediction engine (Elo / Form / H2H / Maps / Veto)
+     └──> internal/sync      orchestration of HLTV → DB synchronization
+          └──> internal/hltv     HLTV client: HTTP+cookie primary, Chrome/CDP fallback
+     └──> internal/storage    SQLite repository (migrations, upserts, queries)
+
+internal/config   ENV-driven configuration
+internal/logx     structured-ish logging (stdout + in-memory history + SSE)
+internal/models   shared domain types (Team, Match, Event, Prediction)
+internal/platform OS-specific Chrome launcher
+```
+
+### Dependency direction
+
+- `cmd/psr` wires concrete implementations together.
+- `api` depends on `predict`, `sync`, `storage`, `hltv` (via the server).
+- `predict` depends only on its own interfaces (`DataProvider`) implemented by
+  `storage.DB`.
+- `sync` depends on its own interfaces (`Source`, `Store`) implemented by
+  `hltv.Client` and `storage.DB`.
+- `storage` depends on `database/sql` + the SQLite driver only.
+- `hltv` depends on HTTP/CDP libraries and `models`.
+
+No `internal/*` package imports `cmd/psr` or `internal/api`.
+
+## 2. Interfaces (consumer-defined)
+
+Following the Go idiom "accept interfaces, return structs", each consumer
+declares the subset of behaviour it needs:
+
+- `predict.DataProvider` (`internal/predict/interfaces.go`) — team, match, map
+  and Elo-cache reads. `storage.DB` satisfies it implicitly.
+- `sync.Source` (`internal/sync/interfaces.go`) — the HLTV read surface used by
+  the sync service (events, ranking, results, team pages, matches).
+- `sync.Store` (`internal/sync/interfaces.go`) — the storage write/read surface
+  used by the sync service.
+
+This makes `predict` and `sync` unit-testable with fakes/mocks and decouples
+them from concrete `*storage.DB` / `*hltv.Client` types.
+
+## 3. State management
+
+Historically `internal/sync` stored progress and cancellation in package-level
+globals. As of the P0.2 refactor, state is instance-based:
+
+- `sync.Service` owns a `*StatusTracker` (live progress for the UI) and a
+  `*CancelManager` (cancellable context for background refreshes).
+- The API layer accesses them via `Service.Tracker()` and `Service.Cancel()`.
+- Package-level wrappers (`BeginRefresh`, `CurrentStatus`, ...) remain for
+  backward compatibility with `cmd/psr` and delegate to a default instance.
+
+This allows multiple `Service` instances (tests, multi-tenant) to run in
+isolation.
+
+## 4. Data flow
+
+1. **Ingest** — `internal/hltv` issues TLS-fingerprinted HTTP requests with a
+   `cf_clearance` cookie to bypass Cloudflare. Without a cookie it falls back
+   to Chrome via CDP (`go-rod`).
+2. **Sync** — `internal/sync.Service` orchestrates events → participants →
+   matches → team history → map stats. Writes are idempotent upserts.
+3. **Storage** — `internal/storage` persists to SQLite (WAL, `busy_timeout`,
+   versioned migrations, lookup indexes, Elo cache table).
+4. **Predict** — `internal/predict.Engine` builds four signals (Elo, Form,
+   H2H, Maps) + veto simulation. Elo ratings are cached and invalidated on new
+   matches.
+5. **API/UI** — `internal/api` exposes JSON endpoints and an embedded web UI
+   with SSE live logs.
+
+## 5. Error handling
+
+- Domain sentinel errors exist per layer (`predict.ErrInsufficientData`,
+  `storage.ErrNotFound`, `hltv.ErrBlocked`). Callers use `errors.Is/As`.
+- Best-effort side effects (audit log writes, event/team linkage) that must not
+  fail the main operation are wrapped in helpers that log via `logx` instead of
+  being silently swallowed (`_ = ...`).
+
+## 6. Key decisions (ADRs)
+
+- **ADR-0001 — Pure-Go SQLite.** Use `modernc.org/sqlite` to keep a static,
+  CGO-free build (simpler cross-compilation, smaller Docker image). Trade-off:
+  lower write throughput than CGO `mattn/go-sqlite3`; mitigated by WAL +
+  `busy_timeout` and batched upserts.
+- **ADR-0002 — Consumer-defined interfaces.** Declare interfaces next to the
+  consumer, not the provider, to keep them minimal and testable.
+- **ADR-0003 — HTTP-first scraping with CDP fallback.** HTTP+cookie is cheaper
+  and faster; Chrome/CDP is reserved for when Cloudflare actively challenges.
+- **ADR-0004 — Instance-based sync state.** Move progress/cancellation out of
+  package globals into the `Service` so the code is parallelizable and
+  unit-testable in isolation.
+
+## 7. Testing strategy
+
+- Parsers are covered by HTML fixtures in `testdata/`.
+- `predict` is covered by unit tests (~74% coverage).
+- `sync` is covered by fake `Source`/`Store` tests driving `Service.Refresh`
+  (~33% coverage, up from ~10%).
+- CI runs `go test -race -cover ./...`, `golangci-lint`, cross-build, and a
+  Docker build.
