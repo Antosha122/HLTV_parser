@@ -11,27 +11,67 @@ import (
 	"psr/internal/storage"
 )
 
+// fakeSource returns configurable responses. Zero values keep the legacy
+// "empty" behaviour used by older tests; new fields let Refresh tests drive
+// the service without a real network.
 type fakeSource struct {
 	events   []models.Event
 	ranking  []models.Team
 	team     models.TeamDetail
 	match    models.MatchDetail
 	teamPage hltv.TeamPageData
+
+	// Configurable answers (nil -> empty/zero).
+	eventResults  map[int][]models.MatchSummary
+	eventMatches  map[int][]models.MatchSummary
+	eventTeams    map[int][]models.Team
+	teamResults   map[int][]models.MatchSummary
+	eventsErr     error
+	rankingErr    error
+	eventResultsF func(eventID int) ([]models.MatchSummary, []models.Team, error)
 }
 
 func (f *fakeSource) GetEvents(ctx context.Context) ([]models.Event, error) {
+	if f.eventsErr != nil {
+		return nil, f.eventsErr
+	}
 	return f.events, nil
 }
 func (f *fakeSource) GetRankingTeams(ctx context.Context) ([]models.Team, error) {
+	if f.rankingErr != nil {
+		return nil, f.rankingErr
+	}
 	return f.ranking, nil
 }
 func (f *fakeSource) GetEventResults(ctx context.Context, eventID int) ([]models.MatchSummary, []models.Team, error) {
+	if f.eventResultsF != nil {
+		return f.eventResultsF(eventID)
+	}
+	if f.eventResults != nil {
+		if ms, ok := f.eventResults[eventID]; ok {
+			var teams []models.Team
+			if f.eventTeams != nil {
+				teams = f.eventTeams[eventID]
+			}
+			return ms, teams, nil
+		}
+	}
 	return nil, nil, nil
 }
 func (f *fakeSource) GetEventMatches(ctx context.Context, event models.Event) ([]models.MatchSummary, error) {
+	if f.eventMatches != nil {
+		if ms, ok := f.eventMatches[event.ID]; ok {
+			return ms, nil
+		}
+	}
 	return nil, nil
 }
 func (f *fakeSource) GetEventParticipants(ctx context.Context, event models.Event) ([]models.Team, error) {
+	if f.eventTeams != nil {
+		if t, ok := f.eventTeams[event.ID]; ok {
+			return t, nil
+		}
+	}
 	return nil, nil
 }
 func (f *fakeSource) GetTeam(ctx context.Context, teamID int) (models.TeamDetail, error) {
@@ -41,6 +81,11 @@ func (f *fakeSource) GetTeamByID(ctx context.Context, teamID int, name string) (
 	return f.team, nil
 }
 func (f *fakeSource) GetTeamResultsWithFallback(ctx context.Context, teamID int, teamName string) ([]models.MatchSummary, error) {
+	if f.teamResults != nil {
+		if ms, ok := f.teamResults[teamID]; ok {
+			return ms, nil
+		}
+	}
 	return nil, nil
 }
 func (f *fakeSource) LoadTeamPage(ctx context.Context, teamID int, teamName string) (hltv.TeamPageData, error) {
