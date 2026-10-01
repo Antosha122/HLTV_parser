@@ -1,7 +1,7 @@
 # PSR — CS2 Match Predictor (HLTV)
 
 
-https://burkinanton.ru/
+МОЙ САЙТ ГДЕ МОЖНО БОЛЬШЕ УЗНАТЬ О МНЕ И МОИХ ПРОЕКТА - https://burkinanton.ru/
 
 Приложение на Go для прогнозирования исходов CS2-матчей на основе данных [HLTV](https://www.hltv.org).
 
